@@ -6,7 +6,7 @@ starts quickly and has no third-party runtime dependencies.
 
 ## Install
 
-Download `TimeLogger-1.7.0-macOS-arm64.dmg` from the GitHub release, open it,
+Download `TimeLogger-1.7.1-macOS-arm64.dmg` from the GitHub release, open it,
 and drag **Time Logger** into the **Applications** folder.
 
 The current release is built for Apple silicon. Because it uses a local ad hoc
