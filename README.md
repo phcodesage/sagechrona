@@ -10,7 +10,8 @@ Created by [PHCodeSage](https://github.com/phcodesage).
 
 - Start a session now or select the time you actually began working.
 - End the session and copy a chronological Git activity report.
-- Track an entire repository or scope the report to one subdirectory.
+- Track one or several repositories or scope reports to selected subdirectories.
+- Browse today's timestamped commit messages across every selected project.
 - Choose from the full macOS IANA timezone database with autocomplete.
 - Remember the selected repository and timezone between launches.
 - Normalize conventional commits such as `fix(web): ...` into
@@ -22,7 +23,7 @@ Created by [PHCodeSage](https://github.com/phcodesage).
 
 ## Install
 
-Download `SageChrona-2.0.0-macOS-arm64.dmg` from the latest GitHub release,
+Download `SageChrona-2.1.0-macOS-arm64.dmg` from the latest GitHub release,
 open it, and drag **SageChrona** into **Applications**.
 
 The current build uses a local ad hoc signature rather than an Apple Developer
@@ -31,11 +32,15 @@ ID. macOS may require the first launch to be approved in
 
 ## How reports work
 
-1. Choose a Git repository or a directory inside one.
+1. Choose one or more Git repositories or directories inside them.
 2. Choose the timezone used for displayed and manually selected times.
 3. Select **START NOW** or **STARTED EARLIER…**.
 4. Work and commit normally.
 5. Select **END WORK**, followed by **COPY GIT REPORT**.
+
+Use **TODAY'S COMMITS** at any time to review commit times and messages for the
+current calendar day in the selected timezone. Multi-project session reports
+add a `[repository-name]` suffix so each entry retains its source.
 
 Example:
 

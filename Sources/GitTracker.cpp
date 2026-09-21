@@ -1,8 +1,10 @@
 #include "GitTracker.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <iterator>
 #include <spawn.h>
 #include <string_view>
 #include <sys/wait.h>
@@ -161,6 +163,7 @@ GitResult GitTracker::commitsBetween(const std::string& directory,
 
             GitCommit commit;
             commit.hash = record.substr(0, first);
+            commit.sourceDirectory = directory;
             try {
                 const auto seconds = std::stoll(record.substr(first + 1, second - first - 1));
                 commit.committedAt = Timestamp{std::chrono::seconds{seconds}};
@@ -186,6 +189,30 @@ GitResult GitTracker::commitsBetween(const std::string& directory,
         recordStart = recordEnd + 1;
     }
 
+    return {std::move(commits), {}};
+}
+
+GitResult GitTracker::commitsBetween(const std::vector<std::string>& directories,
+                                     const Timestamp start,
+                                     const Timestamp end) {
+    if (directories.empty()) {
+        return {{}, "Select at least one Git directory first."};
+    }
+
+    std::vector<GitCommit> commits;
+    for (const auto& directory : directories) {
+        auto result = commitsBetween(directory, start, end);
+        if (!result.succeeded()) {
+            return {{}, directory + ": " + result.error};
+        }
+        commits.insert(commits.end(),
+                       std::make_move_iterator(result.commits.begin()),
+                       std::make_move_iterator(result.commits.end()));
+    }
+    std::stable_sort(commits.begin(), commits.end(), [](const GitCommit& left,
+                                                         const GitCommit& right) {
+        return left.committedAt < right.committedAt;
+    });
     return {std::move(commits), {}};
 }
 

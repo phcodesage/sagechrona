@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <set>
 #include <sstream>
 #include <string_view>
 
@@ -95,6 +96,16 @@ bool alreadyHasScope(const std::string& subject) {
     return open != std::string::npos && open + 1 < subject.size() - 1;
 }
 
+std::string repositoryName(const std::string& directory) {
+    const auto last = directory.find_last_not_of('/');
+    if (last == std::string::npos) {
+        return directory;
+    }
+    const auto separator = directory.find_last_of('/', last);
+    return directory.substr(separator == std::string::npos ? 0 : separator + 1,
+                            last - (separator == std::string::npos ? 0 : separator + 1) + 1);
+}
+
 } // namespace
 
 std::vector<ReportSection> splitReport(const std::vector<GitCommit>& commits,
@@ -162,6 +173,14 @@ std::string formatReport(const std::vector<GitCommit>& commits,
         return {};
     }
 
+    std::set<std::string> sources;
+    for (const auto& commit : commits) {
+        if (!commit.sourceDirectory.empty()) {
+            sources.insert(commit.sourceDirectory);
+        }
+    }
+    const bool showRepository = sources.size() > 1;
+
     std::ostringstream report;
     for (std::size_t sectionIndex = 0; sectionIndex < sections.size(); ++sectionIndex) {
         if (sectionIndex > 0) {
@@ -180,7 +199,11 @@ std::string formatReport(const std::vector<GitCommit>& commits,
             if (commitIndex > 0) {
                 report << '\n';
             }
-            report << (commitIndex + 1) << '.' << formatCommit(section.commits[commitIndex]);
+            const auto& commit = section.commits[commitIndex];
+            report << (commitIndex + 1) << '.' << formatCommit(commit);
+            if (showRepository) {
+                report << " [" << repositoryName(commit.sourceDirectory) << ']';
+            }
         }
     }
     return report.str();

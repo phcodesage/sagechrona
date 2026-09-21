@@ -2,10 +2,11 @@
 
 namespace timelogger {
 
-void TimeLog::startWork(const Timestamp timestamp, std::string targetDirectory) {
+void TimeLog::startWork(const Timestamp timestamp,
+                        std::vector<std::string> targetDirectories) {
     timeIn_ = timestamp;
     timeOut_.reset();
-    targetDirectory_ = std::move(targetDirectory);
+    targetDirectories_ = std::move(targetDirectories);
 }
 
 void TimeLog::endWork(const Timestamp timestamp) noexcept {
@@ -20,8 +21,8 @@ const std::optional<Timestamp>& TimeLog::timeOut() const noexcept {
     return timeOut_;
 }
 
-const std::string& TimeLog::targetDirectory() const noexcept {
-    return targetDirectory_;
+const std::vector<std::string>& TimeLog::targetDirectories() const noexcept {
+    return targetDirectories_;
 }
 
 bool TimeLog::isComplete() const noexcept {

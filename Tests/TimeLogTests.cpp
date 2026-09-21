@@ -45,15 +45,16 @@ int main() {
     const timelogger::Timestamp replacementStart{1500s};
     const timelogger::Timestamp end{2000s};
 
-    log.startWork(start, "/example/repository");
+    log.startWork(start, {"/example/repository", "/example/api"});
     assert(log.timeIn() == start);
     assert(!log.timeOut().has_value());
-    assert(log.targetDirectory() == "/example/repository");
+    assert(log.targetDirectories().size() == 2);
+    assert(log.targetDirectories().front() == "/example/repository");
 
     // Match the original app: pressing START again replaces the displayed time.
-    log.startWork(replacementStart, "/example/other");
+    log.startWork(replacementStart, {"/example/other"});
     assert(log.timeIn() == replacementStart);
-    assert(log.targetDirectory() == "/example/other");
+    assert(log.targetDirectories().front() == "/example/other");
 
     log.endWork(end);
     assert(log.timeOut() == end);
@@ -62,7 +63,7 @@ int main() {
     const timelogger::GitCommit webFix{
         "abc", replacementStart + 1s,
         "fix(web): queued messages are delivered in order",
-        {"static/chat.js"}
+        {"static/chat.js"}, "/projects/product"
     };
     assert(timelogger::formatCommit(webFix) ==
            "fixed: queued messages are delivered in order (web)");
@@ -70,7 +71,7 @@ int main() {
     const timelogger::GitCommit mobileFeature{
         "def", replacementStart + 2s,
         "feat: add background notifications",
-        {"mobile/lib/notifications.dart"}
+        {"mobile/lib/notifications.dart"}, "/projects/product"
     };
     assert(timelogger::formatCommit(mobileFeature) ==
            "added: add background notifications (mobile)");
@@ -78,7 +79,7 @@ int main() {
     const timelogger::GitCommit sharedFix{
         "ghi", replacementStart + 3s,
         "fixed: keep unread totals consistent",
-        {"static/inbox.js", "android/Inbox.kt"}
+        {"static/inbox.js", "android/Inbox.kt"}, {}
     };
     assert(timelogger::formatCommit(sharedFix) ==
            "fixed: keep unread totals consistent (web+mobile)");
@@ -86,7 +87,7 @@ int main() {
     const auto longEnd = replacementStart + timelogger::kMaximumReportDuration + 1s;
     const timelogger::GitCommit boundaryCommit{
         "jkl", replacementStart + timelogger::kMaximumReportDuration,
-        "chore: begin the next report", {}
+        "chore: begin the next report", {}, {}
     };
     const auto sections = timelogger::splitReport(
         {webFix, boundaryCommit}, replacementStart, longEnd);
@@ -99,6 +100,14 @@ int main() {
     assert(shortReport ==
            "1.fixed: queued messages are delivered in order (web)\n"
            "2.added: add background notifications (mobile)");
+
+    auto secondRepositoryCommit = mobileFeature;
+    secondRepositoryCommit.sourceDirectory = "/projects/mobile-client";
+    const auto multiRepositoryReport = timelogger::formatReport(
+        {webFix, secondRepositoryCommit}, replacementStart, end);
+    assert(multiRepositoryReport ==
+           "1.fixed: queued messages are delivered in order (web) [product]\n"
+           "2.added: add background notifications (mobile) [mobile-client]");
 
     const auto splitReport = timelogger::formatReport(
         {webFix, boundaryCommit}, replacementStart, longEnd);

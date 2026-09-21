@@ -12,6 +12,7 @@ namespace {
 constexpr CGFloat kWindowWidth = 820.0;
 constexpr CGFloat kWindowHeight = 640.0;
 NSString* const kTargetDirectoryDefaultsKey = @"TargetGitDirectory";
+NSString* const kTargetDirectoriesDefaultsKey = @"TargetGitDirectories";
 NSString* const kTimeZoneDefaultsKey = @"ReportTimeZone";
 
 NSColor* color(const CGFloat red, const CGFloat green, const CGFloat blue,
@@ -24,12 +25,22 @@ std::string utf8String(NSString* value) {
     return value == nil ? std::string{} : std::string(value.fileSystemRepresentation);
 }
 
+std::vector<std::string> utf8Strings(NSArray<NSString*>* values) {
+    std::vector<std::string> result;
+    result.reserve(values.count);
+    for (NSString* value in values) {
+        result.push_back(utf8String(value));
+    }
+    return result;
+}
+
 NSString* nativeString(const std::string& value) {
     NSString* string = [NSString stringWithUTF8String:value.c_str()];
     return string == nil ? @"" : string;
 }
 
-NSString* formatTime(const timelogger::Timestamp timestamp, NSString* timeZoneName) {
+NSString* formatTime(const timelogger::Timestamp timestamp, NSString* timeZoneName,
+                     NSString* pattern = @"yyyy-MM-dd HH:mm:ss") {
     const auto seconds = std::chrono::duration<double>(timestamp.time_since_epoch()).count();
     NSDate* date = [NSDate dateWithTimeIntervalSince1970:seconds];
 
@@ -38,9 +49,9 @@ NSString* formatTime(const timelogger::Timestamp timestamp, NSString* timeZoneNa
     dispatch_once(&onceToken, ^{
         formatter = [[NSDateFormatter alloc] init];
         formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
-        formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
     });
     formatter.timeZone = [NSTimeZone timeZoneWithName:timeZoneName];
+    formatter.dateFormat = pattern;
     return [formatter stringFromDate:date];
 }
 
@@ -151,9 +162,12 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     NSButton* _startButton;
     NSButton* _earlierButton;
     NSButton* _endButton;
+    NSButton* _todayCommitsButton;
     NSComboBox* _timeZonePicker;
-    NSString* _selectedDirectory;
+    NSArray<NSString*>* _selectedDirectories;
     NSString* _sessionTimeZone;
+    NSWindow* _todayCommitsWindow;
+    NSString* _todayCommitsListing;
     timelogger::TimeLog _timeLog;
 }
 
@@ -170,15 +184,45 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _statusDot.textColor = statusColor;
 }
 
-- (void)setSelectedDirectory:(NSString*)directory {
-    _selectedDirectory = [directory copy];
-    if (_selectedDirectory.length == 0) {
-        _repositoryField.stringValue = @"No repository selected";
+- (void)setSelectedDirectories:(NSArray<NSString*>*)directories {
+    _selectedDirectories = [directories copy];
+    if (_selectedDirectories.count == 0) {
+        _repositoryField.stringValue = @"No repositories selected";
+        _repositoryField.toolTip = nil;
+        if (_todayCommitsButton != nil) {
+            setButtonEnabled(_todayCommitsButton, NO);
+        }
         return;
     }
-    _repositoryField.stringValue = _selectedDirectory;
-    [NSUserDefaults.standardUserDefaults setObject:_selectedDirectory
-                                            forKey:kTargetDirectoryDefaultsKey];
+
+    if (_selectedDirectories.count == 1) {
+        _repositoryField.stringValue = _selectedDirectories.firstObject;
+    } else {
+        NSMutableArray<NSString*>* names = [NSMutableArray array];
+        for (NSString* directory in _selectedDirectories) {
+            [names addObject:directory.lastPathComponent];
+        }
+        _repositoryField.stringValue = [NSString stringWithFormat:@"%lu repositories  •  %@",
+            static_cast<unsigned long>(_selectedDirectories.count),
+            [names componentsJoinedByString:@", "]];
+    }
+    _repositoryField.toolTip = [_selectedDirectories componentsJoinedByString:@"\n"];
+    [NSUserDefaults.standardUserDefaults setObject:_selectedDirectories
+                                            forKey:kTargetDirectoriesDefaultsKey];
+    setButtonEnabled(_todayCommitsButton, YES);
+}
+
+- (std::string)validateSelectedDirectories {
+    if (_selectedDirectories.count == 0) {
+        return "Select at least one Git directory first.";
+    }
+    for (NSString* directory in _selectedDirectories) {
+        if (auto error = timelogger::GitTracker::validateDirectory(utf8String(directory));
+            !error.empty()) {
+            return utf8String(directory) + ": " + error;
+        }
+    }
+    return {};
 }
 
 - (NSString*)selectedTimeZoneName {
@@ -269,15 +313,15 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     header.alignment = NSLayoutAttributeCenterY;
 
     NSView* repositoryCard = makeCard();
-    NSTextField* repositoryTitle = makeLabel(@"TRACKED GIT DIRECTORY", 11.0,
+    NSTextField* repositoryTitle = makeLabel(@"TRACKED GIT DIRECTORIES", 11.0,
                                               NSFontWeightBold, color(139.0, 148.0, 169.0));
-    _repositoryField = makeLabel(@"No repository selected", 14.0,
+    _repositoryField = makeLabel(@"No repositories selected", 14.0,
                                  NSFontWeightMedium, color(230.0, 233.0, 241.0));
     _repositoryField.font = [NSFont monospacedSystemFontOfSize:14.0
                                                         weight:NSFontWeightMedium];
     _repositoryField.lineBreakMode = NSLineBreakByTruncatingMiddle;
     _repositoryField.selectable = YES;
-    _chooseDirectoryButton = makeSecondaryButton(@"CHOOSE DIRECTORY", self,
+    _chooseDirectoryButton = makeSecondaryButton(@"CHOOSE DIRECTORIES", self,
                                                   @selector(selectGitDirectory:));
     NSBox* settingsDivider = [[NSBox alloc] initWithFrame:NSZeroRect];
     settingsDivider.boxType = NSBoxSeparator;
@@ -345,6 +389,16 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _copyReportButton = makeActionButton(@"COPY GIT REPORT", self, @selector(copyReport:),
                                          color(36.0, 166.0, 131.0));
     setButtonEnabled(_copyReportButton, NO);
+    _todayCommitsButton = makeActionButton(@"TODAY'S COMMITS", self,
+                                           @selector(showTodaysCommits:),
+                                           color(48.0, 57.0, 76.0));
+    setButtonEnabled(_todayCommitsButton, NO);
+    NSStackView* reportRow = [NSStackView stackViewWithViews:@[
+        _todayCommitsButton, _copyReportButton
+    ]];
+    reportRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    reportRow.distribution = NSStackViewDistributionFillEqually;
+    reportRow.spacing = 14.0;
 
     _statusDot = makeLabel(@"●", 12.0, NSFontWeightBold, color(111.0, 222.0, 177.0));
     _statusField = makeLabel(@"Select a Git directory to begin.", 13.0,
@@ -355,7 +409,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     statusRow.spacing = 8.0;
 
     NSStackView* content = [NSStackView stackViewWithViews:@[
-        header, repositoryCard, timeRow, actionRow, _copyReportButton, statusRow
+        header, repositoryCard, timeRow, actionRow, reportRow, statusRow
     ]];
     content.orientation = NSUserInterfaceLayoutOrientationVertical;
     content.alignment = NSLayoutAttributeCenterX;
@@ -372,23 +426,38 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         [repositoryCard.widthAnchor constraintEqualToAnchor:content.widthAnchor],
         [timeRow.widthAnchor constraintEqualToAnchor:content.widthAnchor],
         [actionRow.widthAnchor constraintEqualToAnchor:content.widthAnchor],
-        [_copyReportButton.widthAnchor constraintEqualToAnchor:content.widthAnchor],
+        [reportRow.widthAnchor constraintEqualToAnchor:content.widthAnchor],
     ]];
 
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
-    NSString* savedDirectory = [defaults stringForKey:kTargetDirectoryDefaultsKey];
+    NSArray<NSString*>* savedDirectories = [defaults arrayForKey:kTargetDirectoriesDefaultsKey];
     BOOL migratedLegacySettings = NO;
-    if (savedDirectory.length == 0) {
+    if (savedDirectories.count == 0) {
+        NSString* savedDirectory = [defaults stringForKey:kTargetDirectoryDefaultsKey];
+        if (savedDirectory.length > 0) {
+            savedDirectories = @[savedDirectory];
+        }
+    }
+    if (savedDirectories.count == 0) {
         NSUserDefaults* legacyDefaults = [[NSUserDefaults alloc]
             initWithSuiteName:@"com.local.timelogger"];
-        savedDirectory = [legacyDefaults stringForKey:kTargetDirectoryDefaultsKey];
-        migratedLegacySettings = savedDirectory.length > 0;
+        NSString* savedDirectory = [legacyDefaults stringForKey:kTargetDirectoryDefaultsKey];
+        if (savedDirectory.length > 0) {
+            savedDirectories = @[savedDirectory];
+            migratedLegacySettings = YES;
+        }
     }
-    if (savedDirectory.length > 0) {
-        const auto error = timelogger::GitTracker::validateDirectory(utf8String(savedDirectory));
-        if (error.empty()) {
-            [self setSelectedDirectory:savedDirectory];
-            [self setStatus:@"Ready to track Git commits." color:color(111.0, 222.0, 177.0)];
+    if (savedDirectories.count > 0) {
+        NSMutableArray<NSString*>* validDirectories = [NSMutableArray array];
+        for (NSString* directory in savedDirectories) {
+            if (timelogger::GitTracker::validateDirectory(utf8String(directory)).empty()) {
+                [validDirectories addObject:directory];
+            }
+        }
+        if (validDirectories.count > 0) {
+            [self setSelectedDirectories:validDirectories];
+            [self setStatus:@"Ready to track Git commits."
+                      color:color(111.0, 222.0, 177.0)];
         }
     }
 
@@ -412,26 +481,33 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     panel.prompt = @"Select";
     panel.canChooseFiles = NO;
     panel.canChooseDirectories = YES;
-    panel.allowsMultipleSelection = NO;
+    panel.allowsMultipleSelection = YES;
     panel.canCreateDirectories = NO;
+    panel.message = @"Select one or more Git repositories or subdirectories.";
     if ([panel runModal] != NSModalResponseOK) {
         return;
     }
 
-    NSString* directory = panel.URL.path;
-    const auto error = timelogger::GitTracker::validateDirectory(utf8String(directory));
-    if (!error.empty()) {
-        [self showError:nativeString(error)];
-        return;
+    NSMutableArray<NSString*>* directories = [NSMutableArray array];
+    for (NSURL* url in panel.URLs) {
+        NSString* directory = url.path;
+        const auto error = timelogger::GitTracker::validateDirectory(utf8String(directory));
+        if (!error.empty()) {
+            [self showError:[NSString stringWithFormat:@"%@\n\n%@",
+                directory, nativeString(error)]];
+            return;
+        }
+        if (![directories containsObject:directory]) {
+            [directories addObject:directory];
+        }
     }
-    [self setSelectedDirectory:directory];
+    [self setSelectedDirectories:directories];
     [self setStatus:@"Ready to track Git commits." color:color(111.0, 222.0, 177.0)];
 }
 
 - (void)startWork:(id)sender {
     (void)sender;
-    const auto directory = utf8String(_selectedDirectory);
-    if (const auto error = timelogger::GitTracker::validateDirectory(directory); !error.empty()) {
+    if (const auto error = [self validateSelectedDirectories]; !error.empty()) {
         [self showError:nativeString(error)];
         return;
     }
@@ -442,7 +518,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     }
 
     const auto now = std::chrono::system_clock::now();
-    _timeLog.startWork(now, directory);
+    _timeLog.startWork(now, utf8Strings(_selectedDirectories));
     _sessionTimeZone = [timeZoneName copy];
     [NSUserDefaults.standardUserDefaults setObject:_sessionTimeZone forKey:kTimeZoneDefaultsKey];
     NSString* value = formatTime(now, _sessionTimeZone);
@@ -460,8 +536,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 
 - (void)startedEarlier:(id)sender {
     (void)sender;
-    const auto directory = utf8String(_selectedDirectory);
-    if (const auto error = timelogger::GitTracker::validateDirectory(directory); !error.empty()) {
+    if (const auto error = [self validateSelectedDirectories]; !error.empty()) {
         [self showError:nativeString(error)];
         return;
     }
@@ -496,7 +571,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     }
 
     const auto selectedTime = timestampFromDate(picker.dateValue);
-    _timeLog.startWork(selectedTime, directory);
+    _timeLog.startWork(selectedTime, utf8Strings(_selectedDirectories));
     _sessionTimeZone = [timeZoneName copy];
     [NSUserDefaults.standardUserDefaults setObject:_sessionTimeZone forKey:kTimeZoneDefaultsKey];
     NSString* value = formatTime(selectedTime, _sessionTimeZone);
@@ -535,6 +610,130 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     copyToClipboard(value);
 }
 
+- (void)showTodaysCommits:(id)sender {
+    (void)sender;
+    if (const auto error = [self validateSelectedDirectories]; !error.empty()) {
+        [self showError:nativeString(error)];
+        return;
+    }
+    NSString* timeZoneName = [self selectedTimeZoneName];
+    if (timeZoneName == nil) {
+        [self showError:@"Choose a valid timezone before viewing today's commits."];
+        return;
+    }
+
+    NSCalendar* calendar = [[NSCalendar alloc]
+        initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+    calendar.timeZone = [NSTimeZone timeZoneWithName:timeZoneName];
+    NSDate* nowDate = NSDate.date;
+    NSDate* startDate = [calendar startOfDayForDate:nowDate];
+    const auto start = timestampFromDate(startDate);
+    const auto end = timestampFromDate(nowDate);
+    const auto result = timelogger::GitTracker::commitsBetween(
+        utf8Strings(_selectedDirectories), start, end);
+    if (!result.succeeded()) {
+        [self showError:nativeString(result.error)];
+        return;
+    }
+
+    NSMutableString* listing = [NSMutableString string];
+    for (const auto& commit : result.commits) {
+        NSString* time = formatTime(commit.committedAt, timeZoneName, @"HH:mm");
+        NSString* repository = nativeString(commit.sourceDirectory).lastPathComponent;
+        NSString* subject = nativeString(timelogger::formatCommit(commit));
+        [listing appendFormat:@"%@  [%@]  %@\n", time, repository, subject];
+    }
+    if (listing.length == 0) {
+        [listing appendString:@"No Git commits were recorded today."];
+    }
+
+    NSTextView* textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 620.0, 310.0)];
+    textView.string = listing;
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.font = [NSFont monospacedSystemFontOfSize:13.0 weight:NSFontWeightRegular];
+    textView.textColor = color(228.0, 232.0, 241.0);
+    textView.backgroundColor = color(18.0, 21.0, 28.0);
+    textView.textContainerInset = NSMakeSize(12.0, 12.0);
+
+    NSScrollView* scrollView = [[NSScrollView alloc]
+        initWithFrame:NSMakeRect(0.0, 0.0, 620.0, 310.0)];
+    scrollView.documentView = textView;
+    scrollView.hasVerticalScroller = YES;
+    scrollView.borderType = NSBezelBorder;
+
+    NSString* summary = [NSString stringWithFormat:
+        @"%lu commit%@ across %lu director%@ • %@",
+        static_cast<unsigned long>(result.commits.size()),
+        result.commits.size() == 1 ? @"" : @"s",
+        static_cast<unsigned long>(_selectedDirectories.count),
+        _selectedDirectories.count == 1 ? @"y" : @"ies",
+        timeZoneName];
+    _todayCommitsListing = [listing copy];
+
+    _todayCommitsWindow = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(0.0, 0.0, 720.0, 460.0)
+                  styleMask:NSWindowStyleMaskTitled
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    _todayCommitsWindow.title = @"Today's Git commits";
+    _todayCommitsWindow.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    _todayCommitsWindow.backgroundColor = color(12.0, 15.0, 21.0);
+
+    NSView* sheetRoot = [[NSView alloc] initWithFrame:NSZeroRect];
+    sheetRoot.wantsLayer = YES;
+    sheetRoot.layer.backgroundColor = color(12.0, 15.0, 21.0).CGColor;
+    _todayCommitsWindow.contentView = sheetRoot;
+
+    NSTextField* sheetTitle = makeLabel(@"Today's commits", 23.0, NSFontWeightBold,
+                                        color(245.0, 247.0, 252.0));
+    NSTextField* sheetSummary = makeLabel(summary, 13.0, NSFontWeightRegular,
+                                          color(139.0, 148.0, 169.0));
+    NSButton* copyButton = makeActionButton(@"COPY MESSAGES", self,
+                                            @selector(copyTodaysCommitMessages:),
+                                            color(36.0, 166.0, 131.0));
+    NSButton* doneButton = makeActionButton(@"DONE", self,
+                                            @selector(closeTodaysCommits:),
+                                            color(48.0, 57.0, 76.0));
+
+    [sheetRoot addSubview:sheetTitle];
+    [sheetRoot addSubview:sheetSummary];
+    scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    [sheetRoot addSubview:scrollView];
+    [sheetRoot addSubview:copyButton];
+    [sheetRoot addSubview:doneButton];
+    [NSLayoutConstraint activateConstraints:@[
+        [sheetTitle.topAnchor constraintEqualToAnchor:sheetRoot.topAnchor constant:24.0],
+        [sheetTitle.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
+        [sheetSummary.topAnchor constraintEqualToAnchor:sheetTitle.bottomAnchor constant:4.0],
+        [sheetSummary.leadingAnchor constraintEqualToAnchor:sheetTitle.leadingAnchor],
+        [scrollView.topAnchor constraintEqualToAnchor:sheetSummary.bottomAnchor constant:18.0],
+        [scrollView.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
+        [scrollView.trailingAnchor constraintEqualToAnchor:sheetRoot.trailingAnchor constant:-24.0],
+        [scrollView.bottomAnchor constraintEqualToAnchor:copyButton.topAnchor constant:-18.0],
+        [copyButton.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
+        [copyButton.bottomAnchor constraintEqualToAnchor:sheetRoot.bottomAnchor constant:-20.0],
+        [doneButton.trailingAnchor constraintEqualToAnchor:sheetRoot.trailingAnchor constant:-24.0],
+        [doneButton.bottomAnchor constraintEqualToAnchor:copyButton.bottomAnchor],
+        [doneButton.widthAnchor constraintEqualToAnchor:copyButton.widthAnchor],
+        [doneButton.leadingAnchor constraintEqualToAnchor:copyButton.trailingAnchor constant:14.0],
+    ]];
+    [_window beginSheet:_todayCommitsWindow completionHandler:nil];
+}
+
+- (void)copyTodaysCommitMessages:(id)sender {
+    (void)sender;
+    copyToClipboard(_todayCommitsListing);
+    [self setStatus:@"Today's commit messages copied to the clipboard."
+              color:color(126.0, 141.0, 255.0)];
+    [_window endSheet:_todayCommitsWindow];
+}
+
+- (void)closeTodaysCommits:(id)sender {
+    (void)sender;
+    [_window endSheet:_todayCommitsWindow];
+}
+
 - (void)copyReport:(id)sender {
     (void)sender;
     if (!_timeLog.isComplete()) {
@@ -543,7 +742,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     }
 
     const auto result = timelogger::GitTracker::commitsBetween(
-        _timeLog.targetDirectory(), *_timeLog.timeIn(), *_timeLog.timeOut());
+        _timeLog.targetDirectories(), *_timeLog.timeIn(), *_timeLog.timeOut());
     if (!result.succeeded()) {
         [self showError:nativeString(result.error)];
         return;

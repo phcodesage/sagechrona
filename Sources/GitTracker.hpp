@@ -12,6 +12,7 @@ struct GitCommit final {
     Timestamp committedAt;
     std::string subject;
     std::vector<std::string> changedPaths;
+    std::string sourceDirectory;
 };
 
 struct GitResult final {
@@ -25,6 +26,9 @@ class GitTracker final {
 public:
     [[nodiscard]] static std::string validateDirectory(const std::string& directory);
     [[nodiscard]] static GitResult commitsBetween(const std::string& directory,
+                                                  Timestamp start,
+                                                  Timestamp end);
+    [[nodiscard]] static GitResult commitsBetween(const std::vector<std::string>& directories,
                                                   Timestamp start,
                                                   Timestamp end);
 };
