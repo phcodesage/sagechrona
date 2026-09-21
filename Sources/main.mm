@@ -10,8 +10,9 @@
 namespace {
 
 constexpr CGFloat kWindowWidth = 820.0;
-constexpr CGFloat kWindowHeight = 590.0;
+constexpr CGFloat kWindowHeight = 640.0;
 NSString* const kTargetDirectoryDefaultsKey = @"TargetGitDirectory";
+NSString* const kTimeZoneDefaultsKey = @"ReportTimeZone";
 
 NSColor* color(const CGFloat red, const CGFloat green, const CGFloat blue,
                const CGFloat alpha = 1.0) {
@@ -28,7 +29,7 @@ NSString* nativeString(const std::string& value) {
     return string == nil ? @"" : string;
 }
 
-NSString* formatPuertoRicoTime(const timelogger::Timestamp timestamp) {
+NSString* formatTime(const timelogger::Timestamp timestamp, NSString* timeZoneName) {
     const auto seconds = std::chrono::duration<double>(timestamp.time_since_epoch()).count();
     NSDate* date = [NSDate dateWithTimeIntervalSince1970:seconds];
 
@@ -37,9 +38,9 @@ NSString* formatPuertoRicoTime(const timelogger::Timestamp timestamp) {
     dispatch_once(&onceToken, ^{
         formatter = [[NSDateFormatter alloc] init];
         formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
-        formatter.timeZone = [NSTimeZone timeZoneWithName:@"America/Puerto_Rico"];
         formatter.dateFormat = @"yyyy-MM-dd HH:mm:ss";
     });
+    formatter.timeZone = [NSTimeZone timeZoneWithName:timeZoneName];
     return [formatter stringFromDate:date];
 }
 
@@ -150,14 +151,16 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     NSButton* _startButton;
     NSButton* _earlierButton;
     NSButton* _endButton;
+    NSComboBox* _timeZonePicker;
     NSString* _selectedDirectory;
+    NSString* _sessionTimeZone;
     timelogger::TimeLog _timeLog;
 }
 
 - (void)showError:(NSString*)message {
     NSAlert* alert = [[NSAlert alloc] init];
     alert.alertStyle = NSAlertStyleWarning;
-    alert.messageText = @"Time Logger";
+    alert.messageText = @"SageChrona";
     alert.informativeText = message;
     [alert beginSheetModalForWindow:_window completionHandler:nil];
 }
@@ -178,14 +181,33 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
                                             forKey:kTargetDirectoryDefaultsKey];
 }
 
+- (NSString*)selectedTimeZoneName {
+    NSString* value = [_timeZonePicker.stringValue
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [NSTimeZone timeZoneWithName:value] == nil ? nil : value;
+}
+
+- (void)timeZoneChanged:(id)sender {
+    (void)sender;
+    NSString* timeZoneName = [self selectedTimeZoneName];
+    if (timeZoneName == nil) {
+        [self setStatus:@"Choose a valid IANA timezone from the list."
+                  color:color(255.0, 122.0, 122.0)];
+        return;
+    }
+    [NSUserDefaults.standardUserDefaults setObject:timeZoneName forKey:kTimeZoneDefaultsKey];
+    [self setStatus:@"Timezone saved. Ready to track Git commits."
+              color:color(111.0, 222.0, 177.0)];
+}
+
 - (void)installMainMenu {
     NSMenu* mainMenu = [[NSMenu alloc] initWithTitle:@""];
     NSMenuItem* applicationMenuItem = [[NSMenuItem alloc] initWithTitle:@""
                                                                  action:nil
                                                           keyEquivalent:@""];
     [mainMenu addItem:applicationMenuItem];
-    NSMenu* applicationMenu = [[NSMenu alloc] initWithTitle:@"Time Logger"];
-    NSMenuItem* quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit Time Logger"
+    NSMenu* applicationMenu = [[NSMenu alloc] initWithTitle:@"SageChrona"];
+    NSMenuItem* quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit SageChrona"
                                                       action:@selector(terminate:)
                                                keyEquivalent:@"q"];
     [applicationMenu addItem:quitItem];
@@ -205,13 +227,13 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
                                     NSWindowStyleMaskFullSizeContentView;
     _window = [[NSWindow alloc] initWithContentRect:frame styleMask:style
                                             backing:NSBackingStoreBuffered defer:NO];
-    _window.title = @"Time Logger";
+    _window.title = @"SageChrona";
     _window.titleVisibility = NSWindowTitleHidden;
     _window.titlebarAppearsTransparent = YES;
     _window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     _window.backgroundColor = color(12.0, 15.0, 21.0);
     _window.delegate = self;
-    _window.minSize = NSMakeSize(720.0, 560.0);
+    _window.minSize = NSMakeSize(720.0, 610.0);
     _window.movableByWindowBackground = YES;
     [_window center];
 
@@ -220,9 +242,9 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     root.layer.backgroundColor = color(12.0, 15.0, 21.0).CGColor;
     _window.contentView = root;
 
-    NSTextField* appTitle = makeLabel(@"Time Logger", 28.0, NSFontWeightBold,
+    NSTextField* appTitle = makeLabel(@"SageChrona", 28.0, NSFontWeightBold,
                                       color(245.0, 247.0, 252.0));
-    NSTextField* subtitle = makeLabel(@"Turn focused work into a Git activity report",
+    NSTextField* subtitle = makeLabel(@"Developer timekeeping, powered by Git",
                                       14.0, NSFontWeightRegular,
                                       color(136.0, 146.0, 166.0));
     NSStackView* titleStack = [NSStackView stackViewWithViews:@[appTitle, subtitle]];
@@ -230,7 +252,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     titleStack.alignment = NSLayoutAttributeLeading;
     titleStack.spacing = 3.0;
 
-    NSTextField* versionBadge = makeLabel(@"v1.8  •  GIT REPORTS", 11.0,
+    NSTextField* versionBadge = makeLabel(@"BY PHCODESAGE", 11.0,
                                           NSFontWeightBold, color(151.0, 165.0, 255.0));
     versionBadge.alignment = NSTextAlignmentCenter;
     versionBadge.wantsLayer = YES;
@@ -257,22 +279,48 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _repositoryField.selectable = YES;
     _chooseDirectoryButton = makeSecondaryButton(@"CHOOSE DIRECTORY", self,
                                                   @selector(selectGitDirectory:));
+    NSBox* settingsDivider = [[NSBox alloc] initWithFrame:NSZeroRect];
+    settingsDivider.boxType = NSBoxSeparator;
+    settingsDivider.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField* timeZoneTitle = makeLabel(@"REPORT TIMEZONE", 11.0,
+                                           NSFontWeightBold, color(139.0, 148.0, 169.0));
+    _timeZonePicker = [[NSComboBox alloc] initWithFrame:NSZeroRect];
+    _timeZonePicker.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+    _timeZonePicker.completes = YES;
+    _timeZonePicker.numberOfVisibleItems = 12;
+    _timeZonePicker.hasVerticalScroller = YES;
+    _timeZonePicker.target = self;
+    _timeZonePicker.action = @selector(timeZoneChanged:);
+    _timeZonePicker.translatesAutoresizingMaskIntoConstraints = NO;
+    [_timeZonePicker addItemsWithObjectValues:NSTimeZone.knownTimeZoneNames];
     [repositoryCard addSubview:repositoryTitle];
     [repositoryCard addSubview:_repositoryField];
     [repositoryCard addSubview:_chooseDirectoryButton];
+    [repositoryCard addSubview:settingsDivider];
+    [repositoryCard addSubview:timeZoneTitle];
+    [repositoryCard addSubview:_timeZonePicker];
     [NSLayoutConstraint activateConstraints:@[
-        [repositoryCard.heightAnchor constraintEqualToConstant:82.0],
-        [repositoryTitle.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:16.0],
+        [repositoryCard.heightAnchor constraintEqualToConstant:130.0],
+        [repositoryTitle.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:14.0],
         [repositoryTitle.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
         [_repositoryField.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
         [_repositoryField.trailingAnchor constraintLessThanOrEqualToAnchor:_chooseDirectoryButton.leadingAnchor constant:-18.0],
-        [_repositoryField.bottomAnchor constraintEqualToAnchor:repositoryCard.bottomAnchor constant:-16.0],
+        [_repositoryField.topAnchor constraintEqualToAnchor:repositoryTitle.bottomAnchor constant:5.0],
         [_chooseDirectoryButton.trailingAnchor constraintEqualToAnchor:repositoryCard.trailingAnchor constant:-16.0],
-        [_chooseDirectoryButton.centerYAnchor constraintEqualToAnchor:repositoryCard.centerYAnchor],
+        [_chooseDirectoryButton.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:15.0],
+        [settingsDivider.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
+        [settingsDivider.trailingAnchor constraintEqualToAnchor:repositoryCard.trailingAnchor constant:-20.0],
+        [settingsDivider.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:73.0],
+        [timeZoneTitle.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
+        [timeZoneTitle.centerYAnchor constraintEqualToAnchor:_timeZonePicker.centerYAnchor],
+        [_timeZonePicker.trailingAnchor constraintEqualToAnchor:repositoryCard.trailingAnchor constant:-16.0],
+        [_timeZonePicker.bottomAnchor constraintEqualToAnchor:repositoryCard.bottomAnchor constant:-12.0],
+        [_timeZonePicker.widthAnchor constraintEqualToConstant:280.0],
+        [_timeZonePicker.heightAnchor constraintEqualToConstant:34.0],
     ]];
 
-    NSView* timeInCard = makeTimeCard(@"START TIME  •  PUERTO RICO", &_timeInField);
-    NSView* timeOutCard = makeTimeCard(@"END TIME  •  PUERTO RICO", &_timeOutField);
+    NSView* timeInCard = makeTimeCard(@"START TIME", &_timeInField);
+    NSView* timeOutCard = makeTimeCard(@"END TIME", &_timeOutField);
     NSStackView* timeRow = [NSStackView stackViewWithViews:@[timeInCard, timeOutCard]];
     timeRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     timeRow.distribution = NSStackViewDistributionFillEqually;
@@ -327,7 +375,15 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         [_copyReportButton.widthAnchor constraintEqualToAnchor:content.widthAnchor],
     ]];
 
-    NSString* savedDirectory = [NSUserDefaults.standardUserDefaults stringForKey:kTargetDirectoryDefaultsKey];
+    NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    NSString* savedDirectory = [defaults stringForKey:kTargetDirectoryDefaultsKey];
+    BOOL migratedLegacySettings = NO;
+    if (savedDirectory.length == 0) {
+        NSUserDefaults* legacyDefaults = [[NSUserDefaults alloc]
+            initWithSuiteName:@"com.local.timelogger"];
+        savedDirectory = [legacyDefaults stringForKey:kTargetDirectoryDefaultsKey];
+        migratedLegacySettings = savedDirectory.length > 0;
+    }
     if (savedDirectory.length > 0) {
         const auto error = timelogger::GitTracker::validateDirectory(utf8String(savedDirectory));
         if (error.empty()) {
@@ -335,6 +391,15 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
             [self setStatus:@"Ready to track Git commits." color:color(111.0, 222.0, 177.0)];
         }
     }
+
+    NSString* savedTimeZone = [defaults stringForKey:kTimeZoneDefaultsKey];
+    if ([NSTimeZone timeZoneWithName:savedTimeZone] == nil) {
+        savedTimeZone = migratedLegacySettings
+            ? @"America/Puerto_Rico"
+            : NSTimeZone.localTimeZone.name;
+    }
+    _timeZonePicker.stringValue = savedTimeZone;
+    [defaults setObject:savedTimeZone forKey:kTimeZoneDefaultsKey];
 
     [_window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
@@ -370,14 +435,22 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         [self showError:nativeString(error)];
         return;
     }
+    NSString* timeZoneName = [self selectedTimeZoneName];
+    if (timeZoneName == nil) {
+        [self showError:@"Choose a valid timezone before starting work."];
+        return;
+    }
 
     const auto now = std::chrono::system_clock::now();
     _timeLog.startWork(now, directory);
-    NSString* value = formatPuertoRicoTime(now);
+    _sessionTimeZone = [timeZoneName copy];
+    [NSUserDefaults.standardUserDefaults setObject:_sessionTimeZone forKey:kTimeZoneDefaultsKey];
+    NSString* value = formatTime(now, _sessionTimeZone);
     _timeInField.stringValue = value;
     _timeOutField.stringValue = @"Not logged yet";
     setButtonEnabled(_copyReportButton, NO);
     setButtonEnabled(_chooseDirectoryButton, NO);
+    _timeZonePicker.enabled = NO;
     setButtonEnabled(_startButton, NO);
     setButtonEnabled(_earlierButton, NO);
     setButtonEnabled(_endButton, YES);
@@ -392,10 +465,16 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         [self showError:nativeString(error)];
         return;
     }
+    NSString* timeZoneName = [self selectedTimeZoneName];
+    if (timeZoneName == nil) {
+        [self showError:@"Choose a valid timezone before selecting a start time."];
+        return;
+    }
 
     NSAlert* alert = [[NSAlert alloc] init];
     alert.messageText = @"When did you start working?";
-    alert.informativeText = @"Choose the actual start date and time in Puerto Rico.";
+    alert.informativeText = [NSString stringWithFormat:
+        @"Choose the actual start date and time in %@.", timeZoneName];
     [alert addButtonWithTitle:@"Start Tracking"];
     [alert addButtonWithTitle:@"Cancel"];
 
@@ -403,7 +482,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     picker.datePickerStyle = NSDatePickerStyleTextFieldAndStepper;
     picker.datePickerElements = NSDatePickerElementFlagYearMonthDay |
                                 NSDatePickerElementFlagHourMinuteSecond;
-    picker.timeZone = [NSTimeZone timeZoneWithName:@"America/Puerto_Rico"];
+    picker.timeZone = [NSTimeZone timeZoneWithName:timeZoneName];
     picker.dateValue = [NSDate dateWithTimeIntervalSinceNow:-3600.0];
     picker.maxDate = NSDate.date;
     alert.accessoryView = picker;
@@ -418,11 +497,14 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 
     const auto selectedTime = timestampFromDate(picker.dateValue);
     _timeLog.startWork(selectedTime, directory);
-    NSString* value = formatPuertoRicoTime(selectedTime);
+    _sessionTimeZone = [timeZoneName copy];
+    [NSUserDefaults.standardUserDefaults setObject:_sessionTimeZone forKey:kTimeZoneDefaultsKey];
+    NSString* value = formatTime(selectedTime, _sessionTimeZone);
     _timeInField.stringValue = value;
     _timeOutField.stringValue = @"Not logged yet";
     setButtonEnabled(_copyReportButton, NO);
     setButtonEnabled(_chooseDirectoryButton, NO);
+    _timeZonePicker.enabled = NO;
     setButtonEnabled(_startButton, NO);
     setButtonEnabled(_earlierButton, NO);
     setButtonEnabled(_endButton, YES);
@@ -440,10 +522,11 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 
     const auto now = std::chrono::system_clock::now();
     _timeLog.endWork(now);
-    NSString* value = formatPuertoRicoTime(now);
+    NSString* value = formatTime(now, _sessionTimeZone);
     _timeOutField.stringValue = value;
     setButtonEnabled(_copyReportButton, YES);
     setButtonEnabled(_chooseDirectoryButton, YES);
+    _timeZonePicker.enabled = YES;
     setButtonEnabled(_startButton, YES);
     setButtonEnabled(_earlierButton, YES);
     setButtonEnabled(_endButton, NO);

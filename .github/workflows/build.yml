@@ -16,5 +16,5 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: TimeLogger-macOS-arm64
+          name: SageChrona-macOS-arm64
           path: release/*.dmg

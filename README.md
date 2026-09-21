@@ -1,35 +1,53 @@
-# Time Logger Native
+# SageChrona
 
-A lightweight native macOS recreation of the original Python/Tkinter Time Logger.
-The app uses a C++20 domain core and a thin Objective-C++ AppKit interface, so it
-starts quickly and has no third-party runtime dependencies.
+SageChrona is a lightweight native macOS timekeeper for developers and
+freelancers. It records work sessions and turns the Git commits made during
+each session into a numbered, copy-ready activity report.
+
+Created by [PHCodeSage](https://github.com/phcodesage).
+
+## Features
+
+- Start a session now or select the time you actually began working.
+- End the session and copy a chronological Git activity report.
+- Track an entire repository or scope the report to one subdirectory.
+- Choose from the full macOS IANA timezone database with autocomplete.
+- Remember the selected repository and timezone between launches.
+- Normalize conventional commits such as `fix(web): ...` into
+  `fixed: ... (web)`.
+- Infer `web`, `mobile`, and `web+mobile` scopes from changed paths.
+- Split sessions longer than 8.2 hours into consecutive 8-hour-12-minute
+  report blocks.
+- Run as a small Apple silicon binary with no third-party runtime dependencies.
 
 ## Install
 
-Download `TimeLogger-1.8.0-macOS-arm64.dmg` from the GitHub release, open it,
-and drag **Time Logger** into the **Applications** folder.
+Download `SageChrona-2.0.0-macOS-arm64.dmg` from the latest GitHub release,
+open it, and drag **SageChrona** into **Applications**.
 
-The current release is built for Apple silicon. Because it uses a local ad hoc
-signature rather than an Apple Developer ID, macOS may require the first launch
-to be approved in **System Settings → Privacy & Security**.
+The current build uses a local ad hoc signature rather than an Apple Developer
+ID. macOS may require the first launch to be approved in
+**System Settings → Privacy & Security**.
 
-## Current behavior
+## How reports work
 
-- `START WORK` records the current time in the `America/Puerto_Rico` time zone.
-- `STARTED EARLIER…` opens a Puerto Rico date-and-time picker when work began
-  before the app was opened.
-- `END WORK` records the current time in the same format.
-- Each recorded value is displayed as `yyyy-MM-dd HH:mm:ss` and copied to the
-  macOS clipboard automatically.
-- Repeated clicks replace the corresponding value, matching version 1.6 of the
-  original app.
-- A remembered directory picker scopes Git tracking to a repository or one of
-  its subdirectories.
-- `COPY REPORT` collects non-merge commits made during the session, numbers
-  them, normalizes conventional commit types such as `fix` and `feat`, and
-  infers `web`, `mobile`, or `web+mobile` from changed paths.
-- Sessions longer than 8.2 hours are split into consecutive 8-hour-12-minute
-  reports with numbering restarted in each report.
+1. Choose a Git repository or a directory inside one.
+2. Choose the timezone used for displayed and manually selected times.
+3. Select **START NOW** or **STARTED EARLIER…**.
+4. Work and commit normally.
+5. Select **END WORK**, followed by **COPY GIT REPORT**.
+
+Example:
+
+```text
+1.fixed: preserve queued message order (web)
+2.added: background notification support (mobile)
+3.fixed: keep unread totals consistent (web+mobile)
+```
+
+SageChrona reads non-merge commits reachable from the current branch whose
+commit timestamps fall inside the session. Selecting a subdirectory adds a Git
+path filter, so unrelated changes are excluded.
 
 ## Build and test
 
@@ -40,23 +58,17 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 cmake --install build --prefix dist
-open dist/TimeLogger.app
+open dist/SageChrona.app
 ```
 
-The build applies a local ad hoc signature to the app bundle. Distribution to
-other Macs will require an Apple Developer ID signature and notarization.
+The core is separated by responsibility:
 
-The main pieces are deliberately separated:
-
-- `Sources/TimeLog.*` contains UI-independent session state.
+- `Sources/TimeLog.*` stores UI-independent session state.
 - `Sources/GitTracker.*` reads scoped commit history without invoking a shell.
 - `Sources/ReportFormatter.*` formats and splits clipboard reports.
-- `Sources/main.mm` contains the native AppKit window and platform adapters.
-- `Tests/TimeLogTests.cpp` verifies the core behavior.
-
-Future features such as multiple sessions, project names, local persistence,
-totals, exports, and reports can be added to the C++ layer without rebuilding
-the UI architecture.
+- `Sources/main.mm` provides the native AppKit interface and macOS adapters.
+- `Tests/TimeLogTests.cpp` covers state, formatting, splitting, and real Git
+  integration.
 
 ## Create the installer
 
@@ -64,5 +76,11 @@ the UI architecture.
 ./packaging/build_installer.sh
 ```
 
-This performs a clean release build, runs the test suite, verifies the app
-signature, and writes the disk image to `release/`.
+This performs a release build, runs the test suite, verifies the app signature,
+and writes the DMG to `release/`.
+
+## Contributing
+
+Issues and pull requests are welcome. Please use focused commits with clear
+subjects; conventional commit scopes produce especially readable SageChrona
+reports.

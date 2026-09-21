@@ -3,5 +3,6 @@
 /release/
 /installer_staging/
 /TimeLogger.app/
+/SageChrona.app/
 /*.dmg
 /.DS_Store
