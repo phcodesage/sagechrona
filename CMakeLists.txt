@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(TimeLogger VERSION 1.6.0 LANGUAGES CXX OBJCXX)
+project(TimeLogger VERSION 1.7.0 LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,6 +9,8 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 
 add_library(timelogger_core
+    Sources/GitTracker.cpp
+    Sources/ReportFormatter.cpp
     Sources/TimeLog.cpp
 )
 

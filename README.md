@@ -6,7 +6,7 @@ starts quickly and has no third-party runtime dependencies.
 
 ## Install
 
-Download `TimeLogger-1.6.0-macOS-arm64.dmg` from the GitHub release, open it,
+Download `TimeLogger-1.7.0-macOS-arm64.dmg` from the GitHub release, open it,
 and drag **Time Logger** into the **Applications** folder.
 
 The current release is built for Apple silicon. Because it uses a local ad hoc
@@ -21,6 +21,13 @@ to be approved in **System Settings → Privacy & Security**.
   macOS clipboard automatically.
 - Repeated clicks replace the corresponding value, matching version 1.6 of the
   original app.
+- A remembered directory picker scopes Git tracking to a repository or one of
+  its subdirectories.
+- `COPY REPORT` collects non-merge commits made during the session, numbers
+  them, normalizes conventional commit types such as `fix` and `feat`, and
+  infers `web`, `mobile`, or `web+mobile` from changed paths.
+- Sessions longer than 8.2 hours are split into consecutive 8-hour-12-minute
+  reports with numbering restarted in each report.
 
 ## Build and test
 
@@ -39,7 +46,9 @@ other Macs will require an Apple Developer ID signature and notarization.
 
 The main pieces are deliberately separated:
 
-- `Sources/TimeLog.*` contains UI-independent C++ state.
+- `Sources/TimeLog.*` contains UI-independent session state.
+- `Sources/GitTracker.*` reads scoped commit history without invoking a shell.
+- `Sources/ReportFormatter.*` formats and splits clipboard reports.
 - `Sources/main.mm` contains the native AppKit window and platform adapters.
 - `Tests/TimeLogTests.cpp` verifies the core behavior.
 
