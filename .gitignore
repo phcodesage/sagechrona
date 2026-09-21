@@ -1,0 +1,7 @@
+/build/
+/dist/
+/release/
+/installer_staging/
+/TimeLogger.app/
+/*.dmg
+/.DS_Store

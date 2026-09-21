@@ -1,0 +1,57 @@
+# Time Logger Native
+
+A lightweight native macOS recreation of the original Python/Tkinter Time Logger.
+The app uses a C++20 domain core and a thin Objective-C++ AppKit interface, so it
+starts quickly and has no third-party runtime dependencies.
+
+## Install
+
+Download `TimeLogger-1.6.0-macOS-arm64.dmg` from the GitHub release, open it,
+and drag **Time Logger** into the **Applications** folder.
+
+The current release is built for Apple silicon. Because it uses a local ad hoc
+signature rather than an Apple Developer ID, macOS may require the first launch
+to be approved in **System Settings → Privacy & Security**.
+
+## Current behavior
+
+- `START WORK` records the current time in the `America/Puerto_Rico` time zone.
+- `END WORK` records the current time in the same format.
+- Each recorded value is displayed as `yyyy-MM-dd HH:mm:ss` and copied to the
+  macOS clipboard automatically.
+- Repeated clicks replace the corresponding value, matching version 1.6 of the
+  original app.
+
+## Build and test
+
+Requires macOS 13 or newer, Xcode Command Line Tools, and CMake 3.24 or newer.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix dist
+open dist/TimeLogger.app
+```
+
+The build applies a local ad hoc signature to the app bundle. Distribution to
+other Macs will require an Apple Developer ID signature and notarization.
+
+The main pieces are deliberately separated:
+
+- `Sources/TimeLog.*` contains UI-independent C++ state.
+- `Sources/main.mm` contains the native AppKit window and platform adapters.
+- `Tests/TimeLogTests.cpp` verifies the core behavior.
+
+Future features such as multiple sessions, project names, local persistence,
+totals, exports, and reports can be added to the C++ layer without rebuilding
+the UI architecture.
+
+## Create the installer
+
+```sh
+./packaging/build_installer.sh
+```
+
+This performs a clean release build, runs the test suite, verifies the app
+signature, and writes the disk image to `release/`.
