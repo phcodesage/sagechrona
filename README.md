@@ -6,7 +6,7 @@ starts quickly and has no third-party runtime dependencies.
 
 ## Install
 
-Download `TimeLogger-1.7.1-macOS-arm64.dmg` from the GitHub release, open it,
+Download `TimeLogger-1.8.0-macOS-arm64.dmg` from the GitHub release, open it,
 and drag **Time Logger** into the **Applications** folder.
 
 The current release is built for Apple silicon. Because it uses a local ad hoc
@@ -16,6 +16,8 @@ to be approved in **System Settings → Privacy & Security**.
 ## Current behavior
 
 - `START WORK` records the current time in the `America/Puerto_Rico` time zone.
+- `STARTED EARLIER…` opens a Puerto Rico date-and-time picker when work began
+  before the app was opened.
 - `END WORK` records the current time in the same format.
 - Each recorded value is displayed as `yyyy-MM-dd HH:mm:ss` and copied to the
   macOS clipboard automatically.

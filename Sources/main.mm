@@ -43,6 +43,13 @@ NSString* formatPuertoRicoTime(const timelogger::Timestamp timestamp) {
     return [formatter stringFromDate:date];
 }
 
+timelogger::Timestamp timestampFromDate(NSDate* date) {
+    const auto duration = std::chrono::duration<double>(date.timeIntervalSince1970);
+    return timelogger::Timestamp{
+        std::chrono::duration_cast<timelogger::Timestamp::duration>(duration)
+    };
+}
+
 void copyToClipboard(NSString* value) {
     NSPasteboard* pasteboard = NSPasteboard.generalPasteboard;
     [pasteboard clearContents];
@@ -140,6 +147,9 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     NSTextField* _statusDot;
     NSButton* _chooseDirectoryButton;
     NSButton* _copyReportButton;
+    NSButton* _startButton;
+    NSButton* _earlierButton;
+    NSButton* _endButton;
     NSString* _selectedDirectory;
     timelogger::TimeLog _timeLog;
 }
@@ -220,7 +230,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     titleStack.alignment = NSLayoutAttributeLeading;
     titleStack.spacing = 3.0;
 
-    NSTextField* versionBadge = makeLabel(@"v1.7.1  •  GIT REPORTS", 11.0,
+    NSTextField* versionBadge = makeLabel(@"v1.8  •  GIT REPORTS", 11.0,
                                           NSFontWeightBold, color(151.0, 165.0, 255.0));
     versionBadge.alignment = NSTextAlignmentCenter;
     versionBadge.wantsLayer = YES;
@@ -268,12 +278,18 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     timeRow.distribution = NSStackViewDistributionFillEqually;
     timeRow.spacing = 14.0;
 
-    NSButton* startButton = makeActionButton(@"▶  START WORK", self, @selector(startWork:),
-                                             color(92.0, 80.0, 210.0));
-    startButton.keyEquivalent = @"\r";
-    NSButton* endButton = makeActionButton(@"■  END WORK", self, @selector(endWork:),
-                                           color(49.0, 57.0, 72.0));
-    NSStackView* actionRow = [NSStackView stackViewWithViews:@[startButton, endButton]];
+    _startButton = makeActionButton(@"▶  START NOW", self, @selector(startWork:),
+                                    color(92.0, 80.0, 210.0));
+    _startButton.keyEquivalent = @"\r";
+    _earlierButton = makeActionButton(@"◷  STARTED EARLIER…", self,
+                                      @selector(startedEarlier:),
+                                      color(48.0, 57.0, 76.0));
+    _endButton = makeActionButton(@"■  END WORK", self, @selector(endWork:),
+                                  color(49.0, 57.0, 72.0));
+    setButtonEnabled(_endButton, NO);
+    NSStackView* actionRow = [NSStackView stackViewWithViews:@[
+        _startButton, _earlierButton, _endButton
+    ]];
     actionRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     actionRow.distribution = NSStackViewDistributionFillEqually;
     actionRow.spacing = 14.0;
@@ -362,7 +378,56 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _timeOutField.stringValue = @"Not logged yet";
     setButtonEnabled(_copyReportButton, NO);
     setButtonEnabled(_chooseDirectoryButton, NO);
+    setButtonEnabled(_startButton, NO);
+    setButtonEnabled(_earlierButton, NO);
+    setButtonEnabled(_endButton, YES);
     [self setStatus:@"Tracking commits in the selected directory…" color:color(255.0, 191.0, 94.0)];
+    copyToClipboard(value);
+}
+
+- (void)startedEarlier:(id)sender {
+    (void)sender;
+    const auto directory = utf8String(_selectedDirectory);
+    if (const auto error = timelogger::GitTracker::validateDirectory(directory); !error.empty()) {
+        [self showError:nativeString(error)];
+        return;
+    }
+
+    NSAlert* alert = [[NSAlert alloc] init];
+    alert.messageText = @"When did you start working?";
+    alert.informativeText = @"Choose the actual start date and time in Puerto Rico.";
+    [alert addButtonWithTitle:@"Start Tracking"];
+    [alert addButtonWithTitle:@"Cancel"];
+
+    NSDatePicker* picker = [[NSDatePicker alloc] initWithFrame:NSMakeRect(0.0, 0.0, 330.0, 34.0)];
+    picker.datePickerStyle = NSDatePickerStyleTextFieldAndStepper;
+    picker.datePickerElements = NSDatePickerElementFlagYearMonthDay |
+                                NSDatePickerElementFlagHourMinuteSecond;
+    picker.timeZone = [NSTimeZone timeZoneWithName:@"America/Puerto_Rico"];
+    picker.dateValue = [NSDate dateWithTimeIntervalSinceNow:-3600.0];
+    picker.maxDate = NSDate.date;
+    alert.accessoryView = picker;
+
+    if ([alert runModal] != NSAlertFirstButtonReturn) {
+        return;
+    }
+    if ([picker.dateValue compare:NSDate.date] == NSOrderedDescending) {
+        [self showError:@"The start time cannot be in the future."];
+        return;
+    }
+
+    const auto selectedTime = timestampFromDate(picker.dateValue);
+    _timeLog.startWork(selectedTime, directory);
+    NSString* value = formatPuertoRicoTime(selectedTime);
+    _timeInField.stringValue = value;
+    _timeOutField.stringValue = @"Not logged yet";
+    setButtonEnabled(_copyReportButton, NO);
+    setButtonEnabled(_chooseDirectoryButton, NO);
+    setButtonEnabled(_startButton, NO);
+    setButtonEnabled(_earlierButton, NO);
+    setButtonEnabled(_endButton, YES);
+    [self setStatus:@"Tracking from the selected earlier start time…"
+              color:color(255.0, 191.0, 94.0)];
     copyToClipboard(value);
 }
 
@@ -379,6 +444,9 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _timeOutField.stringValue = value;
     setButtonEnabled(_copyReportButton, YES);
     setButtonEnabled(_chooseDirectoryButton, YES);
+    setButtonEnabled(_startButton, YES);
+    setButtonEnabled(_earlierButton, YES);
+    setButtonEnabled(_endButton, NO);
     [self setStatus:@"Session complete — your Git report is ready."
               color:color(111.0, 222.0, 177.0)];
     copyToClipboard(value);
