@@ -117,6 +117,17 @@ NSButton* makeSecondaryButton(NSString* title, id target, SEL action) {
     return button;
 }
 
+NSButton* makeCompactSecondaryButton(NSString* title, id target, SEL action) {
+    NSButton* button = makeSecondaryButton(title, target, action);
+    for (NSLayoutConstraint* constraint in button.constraints) {
+        if (constraint.firstAttribute == NSLayoutAttributeWidth) {
+            constraint.active = NO;
+        }
+    }
+    [button.widthAnchor constraintGreaterThanOrEqualToConstant:72.0].active = YES;
+    return button;
+}
+
 void setButtonEnabled(NSButton* button, const BOOL enabled) {
     button.enabled = enabled;
     button.layer.opacity = enabled ? 1.0F : 0.34F;
@@ -158,6 +169,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     NSTextField* _statusField;
     NSTextField* _statusDot;
     NSButton* _chooseDirectoryButton;
+    NSButton* _clearDirectoriesButton;
     NSButton* _copyReportButton;
     NSButton* _startButton;
     NSButton* _earlierButton;
@@ -168,6 +180,8 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     NSString* _sessionTimeZone;
     NSWindow* _todayCommitsWindow;
     NSString* _todayCommitsListing;
+    NSButton* _todayCopyButton;
+    NSTextField* _todaySheetSummary;
     timelogger::TimeLog _timeLog;
 }
 
@@ -189,8 +203,13 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     if (_selectedDirectories.count == 0) {
         _repositoryField.stringValue = @"No repositories selected";
         _repositoryField.toolTip = nil;
+        [NSUserDefaults.standardUserDefaults setObject:@[]
+                                                forKey:kTargetDirectoriesDefaultsKey];
         if (_todayCommitsButton != nil) {
             setButtonEnabled(_todayCommitsButton, NO);
+        }
+        if (_clearDirectoriesButton != nil) {
+            setButtonEnabled(_clearDirectoriesButton, NO);
         }
         return;
     }
@@ -210,6 +229,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     [NSUserDefaults.standardUserDefaults setObject:_selectedDirectories
                                             forKey:kTargetDirectoriesDefaultsKey];
     setButtonEnabled(_todayCommitsButton, YES);
+    setButtonEnabled(_clearDirectoriesButton, YES);
 }
 
 - (std::string)validateSelectedDirectories {
@@ -296,7 +316,12 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     titleStack.alignment = NSLayoutAttributeLeading;
     titleStack.spacing = 3.0;
 
-    NSTextField* versionBadge = makeLabel(@"BY PHCODESAGE", 11.0,
+    NSString* version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    if (version.length == 0) {
+        version = @"dev";
+    }
+    NSString* badgeText = [NSString stringWithFormat:@"v%@  •  PHCODESAGE", version];
+    NSTextField* versionBadge = makeLabel(badgeText, 11.0,
                                           NSFontWeightBold, color(151.0, 165.0, 255.0));
     versionBadge.alignment = NSTextAlignmentCenter;
     versionBadge.wantsLayer = YES;
@@ -304,7 +329,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     versionBadge.layer.borderColor = color(124.0, 137.0, 255.0, 0.28).CGColor;
     versionBadge.layer.borderWidth = 1.0;
     versionBadge.layer.cornerRadius = 11.0;
-    [versionBadge.widthAnchor constraintEqualToConstant:142.0].active = YES;
+    [versionBadge.widthAnchor constraintEqualToConstant:172.0].active = YES;
     [versionBadge.heightAnchor constraintEqualToConstant:28.0].active = YES;
 
     NSView* headerSpacer = [[NSView alloc] initWithFrame:NSZeroRect];
@@ -321,8 +346,11 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
                                                         weight:NSFontWeightMedium];
     _repositoryField.lineBreakMode = NSLineBreakByTruncatingMiddle;
     _repositoryField.selectable = YES;
-    _chooseDirectoryButton = makeSecondaryButton(@"CHOOSE DIRECTORIES", self,
+    _chooseDirectoryButton = makeSecondaryButton(@"ADD DIRECTORIES", self,
                                                   @selector(selectGitDirectory:));
+    _clearDirectoriesButton = makeCompactSecondaryButton(@"CLEAR", self,
+                                                           @selector(clearDirectories:));
+    setButtonEnabled(_clearDirectoriesButton, NO);
     NSBox* settingsDivider = [[NSBox alloc] initWithFrame:NSZeroRect];
     settingsDivider.boxType = NSBoxSeparator;
     settingsDivider.translatesAutoresizingMaskIntoConstraints = NO;
@@ -340,6 +368,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     [repositoryCard addSubview:repositoryTitle];
     [repositoryCard addSubview:_repositoryField];
     [repositoryCard addSubview:_chooseDirectoryButton];
+    [repositoryCard addSubview:_clearDirectoriesButton];
     [repositoryCard addSubview:settingsDivider];
     [repositoryCard addSubview:timeZoneTitle];
     [repositoryCard addSubview:_timeZonePicker];
@@ -348,8 +377,10 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         [repositoryTitle.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:14.0],
         [repositoryTitle.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
         [_repositoryField.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
-        [_repositoryField.trailingAnchor constraintLessThanOrEqualToAnchor:_chooseDirectoryButton.leadingAnchor constant:-18.0],
+        [_repositoryField.trailingAnchor constraintLessThanOrEqualToAnchor:_clearDirectoriesButton.leadingAnchor constant:-18.0],
         [_repositoryField.topAnchor constraintEqualToAnchor:repositoryTitle.bottomAnchor constant:5.0],
+        [_clearDirectoriesButton.trailingAnchor constraintEqualToAnchor:_chooseDirectoryButton.leadingAnchor constant:-8.0],
+        [_clearDirectoriesButton.centerYAnchor constraintEqualToAnchor:_chooseDirectoryButton.centerYAnchor],
         [_chooseDirectoryButton.trailingAnchor constraintEqualToAnchor:repositoryCard.trailingAnchor constant:-16.0],
         [_chooseDirectoryButton.topAnchor constraintEqualToAnchor:repositoryCard.topAnchor constant:15.0],
         [settingsDivider.leadingAnchor constraintEqualToAnchor:repositoryCard.leadingAnchor constant:20.0],
@@ -430,15 +461,16 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     ]];
 
     NSUserDefaults* defaults = NSUserDefaults.standardUserDefaults;
+    id savedDirectoriesValue = [defaults objectForKey:kTargetDirectoriesDefaultsKey];
     NSArray<NSString*>* savedDirectories = [defaults arrayForKey:kTargetDirectoriesDefaultsKey];
     BOOL migratedLegacySettings = NO;
-    if (savedDirectories.count == 0) {
+    if (savedDirectoriesValue == nil) {
         NSString* savedDirectory = [defaults stringForKey:kTargetDirectoryDefaultsKey];
         if (savedDirectory.length > 0) {
             savedDirectories = @[savedDirectory];
         }
     }
-    if (savedDirectories.count == 0) {
+    if (savedDirectoriesValue == nil && savedDirectories.count == 0) {
         NSUserDefaults* legacyDefaults = [[NSUserDefaults alloc]
             initWithSuiteName:@"com.local.timelogger"];
         NSString* savedDirectory = [legacyDefaults stringForKey:kTargetDirectoryDefaultsKey];
@@ -477,8 +509,8 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 - (void)selectGitDirectory:(id)sender {
     (void)sender;
     NSOpenPanel* panel = [NSOpenPanel openPanel];
-    panel.title = @"Choose a Git directory to track";
-    panel.prompt = @"Select";
+    panel.title = @"Add Git directories to track";
+    panel.prompt = @"Add";
     panel.canChooseFiles = NO;
     panel.canChooseDirectories = YES;
     panel.allowsMultipleSelection = YES;
@@ -488,7 +520,9 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
         return;
     }
 
-    NSMutableArray<NSString*>* directories = [NSMutableArray array];
+    NSMutableArray<NSString*>* directories = _selectedDirectories.count > 0
+        ? [_selectedDirectories mutableCopy]
+        : [NSMutableArray array];
     for (NSURL* url in panel.URLs) {
         NSString* directory = url.path;
         const auto error = timelogger::GitTracker::validateDirectory(utf8String(directory));
@@ -503,6 +537,13 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     }
     [self setSelectedDirectories:directories];
     [self setStatus:@"Ready to track Git commits." color:color(111.0, 222.0, 177.0)];
+}
+
+- (void)clearDirectories:(id)sender {
+    (void)sender;
+    [self setSelectedDirectories:@[]];
+    [self setStatus:@"Repository selection cleared."
+              color:color(139.0, 148.0, 169.0)];
 }
 
 - (void)startWork:(id)sender {
@@ -526,6 +567,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _timeOutField.stringValue = @"Not logged yet";
     setButtonEnabled(_copyReportButton, NO);
     setButtonEnabled(_chooseDirectoryButton, NO);
+    setButtonEnabled(_clearDirectoriesButton, NO);
     _timeZonePicker.enabled = NO;
     setButtonEnabled(_startButton, NO);
     setButtonEnabled(_earlierButton, NO);
@@ -579,6 +621,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _timeOutField.stringValue = @"Not logged yet";
     setButtonEnabled(_copyReportButton, NO);
     setButtonEnabled(_chooseDirectoryButton, NO);
+    setButtonEnabled(_clearDirectoriesButton, NO);
     _timeZonePicker.enabled = NO;
     setButtonEnabled(_startButton, NO);
     setButtonEnabled(_earlierButton, NO);
@@ -601,6 +644,7 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
     _timeOutField.stringValue = value;
     setButtonEnabled(_copyReportButton, YES);
     setButtonEnabled(_chooseDirectoryButton, YES);
+    setButtonEnabled(_clearDirectoriesButton, YES);
     _timeZonePicker.enabled = YES;
     setButtonEnabled(_startButton, YES);
     setButtonEnabled(_earlierButton, YES);
@@ -687,36 +731,36 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 
     NSTextField* sheetTitle = makeLabel(@"Today's commits", 23.0, NSFontWeightBold,
                                         color(245.0, 247.0, 252.0));
-    NSTextField* sheetSummary = makeLabel(summary, 13.0, NSFontWeightRegular,
-                                          color(139.0, 148.0, 169.0));
-    NSButton* copyButton = makeActionButton(@"COPY MESSAGES", self,
-                                            @selector(copyTodaysCommitMessages:),
-                                            color(36.0, 166.0, 131.0));
+    _todaySheetSummary = makeLabel(summary, 13.0, NSFontWeightRegular,
+                                   color(139.0, 148.0, 169.0));
+    _todayCopyButton = makeActionButton(@"COPY MESSAGES", self,
+                                        @selector(copyTodaysCommitMessages:),
+                                        color(36.0, 166.0, 131.0));
     NSButton* doneButton = makeActionButton(@"DONE", self,
                                             @selector(closeTodaysCommits:),
                                             color(48.0, 57.0, 76.0));
 
     [sheetRoot addSubview:sheetTitle];
-    [sheetRoot addSubview:sheetSummary];
+    [sheetRoot addSubview:_todaySheetSummary];
     scrollView.translatesAutoresizingMaskIntoConstraints = NO;
     [sheetRoot addSubview:scrollView];
-    [sheetRoot addSubview:copyButton];
+    [sheetRoot addSubview:_todayCopyButton];
     [sheetRoot addSubview:doneButton];
     [NSLayoutConstraint activateConstraints:@[
         [sheetTitle.topAnchor constraintEqualToAnchor:sheetRoot.topAnchor constant:24.0],
         [sheetTitle.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
-        [sheetSummary.topAnchor constraintEqualToAnchor:sheetTitle.bottomAnchor constant:4.0],
-        [sheetSummary.leadingAnchor constraintEqualToAnchor:sheetTitle.leadingAnchor],
-        [scrollView.topAnchor constraintEqualToAnchor:sheetSummary.bottomAnchor constant:18.0],
+        [_todaySheetSummary.topAnchor constraintEqualToAnchor:sheetTitle.bottomAnchor constant:4.0],
+        [_todaySheetSummary.leadingAnchor constraintEqualToAnchor:sheetTitle.leadingAnchor],
+        [scrollView.topAnchor constraintEqualToAnchor:_todaySheetSummary.bottomAnchor constant:18.0],
         [scrollView.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
         [scrollView.trailingAnchor constraintEqualToAnchor:sheetRoot.trailingAnchor constant:-24.0],
-        [scrollView.bottomAnchor constraintEqualToAnchor:copyButton.topAnchor constant:-18.0],
-        [copyButton.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
-        [copyButton.bottomAnchor constraintEqualToAnchor:sheetRoot.bottomAnchor constant:-20.0],
+        [scrollView.bottomAnchor constraintEqualToAnchor:_todayCopyButton.topAnchor constant:-18.0],
+        [_todayCopyButton.leadingAnchor constraintEqualToAnchor:sheetRoot.leadingAnchor constant:24.0],
+        [_todayCopyButton.bottomAnchor constraintEqualToAnchor:sheetRoot.bottomAnchor constant:-20.0],
         [doneButton.trailingAnchor constraintEqualToAnchor:sheetRoot.trailingAnchor constant:-24.0],
-        [doneButton.bottomAnchor constraintEqualToAnchor:copyButton.bottomAnchor],
-        [doneButton.widthAnchor constraintEqualToAnchor:copyButton.widthAnchor],
-        [doneButton.leadingAnchor constraintEqualToAnchor:copyButton.trailingAnchor constant:14.0],
+        [doneButton.bottomAnchor constraintEqualToAnchor:_todayCopyButton.bottomAnchor],
+        [doneButton.widthAnchor constraintEqualToAnchor:_todayCopyButton.widthAnchor],
+        [doneButton.leadingAnchor constraintEqualToAnchor:_todayCopyButton.trailingAnchor constant:14.0],
     ]];
     [_window beginSheet:_todayCommitsWindow completionHandler:nil];
 }
@@ -724,9 +768,11 @@ NSView* makeTimeCard(NSString* title, NSTextField** valueField) {
 - (void)copyTodaysCommitMessages:(id)sender {
     (void)sender;
     copyToClipboard(_todayCommitsListing);
+    _todayCopyButton.title = @"COPIED ✓";
+    _todaySheetSummary.stringValue = @"Copied today's commit messages to the clipboard.";
+    _todaySheetSummary.textColor = color(111.0, 222.0, 177.0);
     [self setStatus:@"Today's commit messages copied to the clipboard."
               color:color(126.0, 141.0, 255.0)];
-    [_window endSheet:_todayCommitsWindow];
 }
 
 - (void)closeTodaysCommits:(id)sender {

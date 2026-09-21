@@ -23,7 +23,7 @@ Created by [PHCodeSage](https://github.com/phcodesage).
 
 ## Install
 
-Download `SageChrona-2.1.0-macOS-arm64.dmg` from the latest GitHub release,
+Download `SageChrona-2.1.1-macOS-arm64.dmg` from the latest GitHub release,
 open it, and drag **SageChrona** into **Applications**.
 
 The current build uses a local ad hoc signature rather than an Apple Developer
